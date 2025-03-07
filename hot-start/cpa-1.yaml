@@ -1,0 +1,107 @@
+apiVersion: test.dev/v1
+kind: CyberPhysicalApplication
+metadata:
+  name: "cpa-1"
+spec:
+  # debug migrazione
+  migrate: true
+  mirrorTime: 60
+  source: ""
+  twinType: "simple"
+  twinOf: 
+   - "led_1"
+  requirements:
+    preferredAffinity: "mec"
+    odte: 0.8
+  deployments:
+    - type: "Kubernetes"
+      affinity: "edge"
+      configs:
+        - apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            namespace: default
+            name: dt-1-deployment-edge
+            labels:
+              app: dt-1-edge
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: dt-1-edge
+            template:
+              metadata:
+                labels:
+                  app: dt-1-edge
+                annotations:
+                  # prometheusUrl: "http://prometheus-service.istio-system.svc.cluster.local:9090"
+                  prometheusUrl: "http://localhost:30080"
+                  prometheus.io/scrape: "true"
+                  prometheus.io/port: "8001"
+                  prometheus.io/path: "/metrics"
+              spec:
+                containers:
+                - name: dt-1-edge
+                  image: rssgai/dt-flask:mirroring-v3
+                  ports:
+                  - containerPort: 8001
+
+        - apiVersion: v1
+          kind: Service
+          metadata:
+            namespace: default
+            name: dt-1-service-edge
+          spec:
+            selector:
+              app: dt-1-edge
+            ports:
+              - name: http
+                port: 8001
+                targetPort: 8001
+            type: NodePort
+    
+    - type: "Kubernetes"
+      affinity: "mec"
+      configs:
+        - apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            namespace: default
+            name: dt-1-deployment-mec
+            labels:
+              app: dt-1-mec
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: dt-1-mec
+            template:
+              metadata:
+                labels:
+                  app: dt-1-mec
+                annotations:
+                  # prometheusUrl: "http://prometheus-service.istio-system.svc.cluster.local:9090"
+                  prometheusUrl: "http://localhost:30080"
+                  prometheus.io/scrape: "true"
+                  prometheus.io/port: "8001"
+                  prometheus.io/path: "/metrics"
+              spec:
+                containers:
+                - name: dt-1-mec
+                  image: rssgai/dt-flask:mirroring-v3
+                  ports:
+                  - containerPort: 8001
+
+        - apiVersion: v1
+          kind: Service
+          metadata:
+            namespace: default
+            name: dt-1-service-mec
+          spec:
+            selector:
+              app: dt-1-mec
+            ports:
+              - name: http
+                port: 8001
+                targetPort: 8001
+            type: NodePort
