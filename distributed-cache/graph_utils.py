@@ -18,7 +18,7 @@ def generate_chart(timestamps):
 
     # Plot the Gantt chart
     fig_width = 8
-    fig_height = len(df) * 0.4
+    fig_height = len(df) * 0.6
     fig, ax = plt.subplots(figsize=(fig_width, fig_height))
     ax.barh(df["Operation"], df["Duration"], left=df["Normalized Start"], color="skyblue")
 

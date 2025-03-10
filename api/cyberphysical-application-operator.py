@@ -1,12 +1,19 @@
-import kopf, requests, json, random, datetime
+import kopf, requests, json, random, datetime, os
 from kubernetes import client
 from kubernetes.utils import create_from_dict
 from k8s_utils import delete_from_dict
 from graph_utils import generate_chart
 
+CLUSTER_IP = os.environ.get("CLUSTER_IP")
+
+if not CLUSTER_IP:
+    print("CLUSTER_IP env var not present. Exiting.")
+    exit(1)
+
 @kopf.on.create("cyberphysicalapplications")
-def create_fn(spec, name, logger, **kwargs):
+def create_fn(spec, name, namespace, meta, logger, **kwargs):
     k8s_client = client.ApiClient()
+    k8s_custom_object = client.CustomObjectsApi()
 
     deployments = spec.get("deployments")
     preferred_affinity = spec.get("requirements").get("preferredAffinity")
@@ -15,7 +22,7 @@ def create_fn(spec, name, logger, **kwargs):
     deployment_configs = None
     deployment_namespace = None
     deployment_app_name = None
-    deployment_prometheus_url = None
+    # deployment_prometheus_url = None
 
     if preferred_affinity == "" or preferred_affinity is None:
         deployment_configs = deployments[0].get("configs")
@@ -45,12 +52,18 @@ def create_fn(spec, name, logger, **kwargs):
         except Exception as e:
             logger.exception("Exception in object creation.")
 
-    return {
-        "child-deployment-namespace": deployment_namespace,
-        "child-deployment-app-name": deployment_app_name,
-        "child-deployment-prometheus-url": deployment_prometheus_url,
-        "child-deployment-affinity": deployment_affinity
-    }
+    # "child-deployment-prometheus-url": deployment_prometheus_url,
+    annotations_patch = {"metadata": {"annotations": dict(meta.annotations)}}
+    annotations_patch["metadata"]["annotations"]["child-deployment-namespace"] = deployment_namespace
+    annotations_patch["metadata"]["annotations"]["child-deployment-app-name"] = deployment_app_name
+    annotations_patch["metadata"]["annotations"]["child-deployment-affinity"] = deployment_affinity
+
+
+    group = "test.dev"
+    version = "v1"
+    plural = "cyberphysicalapplications"
+    resp = k8s_custom_object.patch_namespaced_custom_object(group, version, namespace, plural, name, body=annotations_patch)
+
 
 def get_prometheus_odte(prometheus_url, twin_of, logger):
     """Fetch ODTE value from Prometheus."""
@@ -118,7 +131,7 @@ def update_fn(name, spec, namespace, **kwargs):
         obj = k8s_client_custom_object.patch_namespaced_custom_object(group, version, namespace, plural, name, body=cpa_patch)
 
 @kopf.on.field("cyberphysicalapplications", field="spec.migrate")
-def migrate_fn(spec, status, name, old, new, logger, **_):
+def migrate_fn(spec, namespace, meta, name, old, new, logger, **_):
 
     # guard condition for creation
     if old is None:
@@ -126,6 +139,7 @@ def migrate_fn(spec, status, name, old, new, logger, **_):
     
     k8s_client = client.ApiClient()
     k8s_core_v1 = client.CoreV1Api()
+    k8s_custom_object = client.CustomObjectsApi()
 
     # trigger a migration
     if old == False and new == True:
@@ -133,21 +147,22 @@ def migrate_fn(spec, status, name, old, new, logger, **_):
 
         # create new instance
         deployments = spec.get("deployments")
-        current_deployment_affinity = status.get("create_fn").get("child-deployment-affinity")
-        current_deployment_namespace = status.get("create_fn").get("child-deployment-namespace")
+        current_deployment_affinity = meta.get("annotations").get("child-deployment-affinity")
+        current_deployment_namespace = meta.get("annotations").get("child-deployment-namespace")
         next_deployment = choose_next_deployment(deployments, current_deployment_affinity)
         next_deployment_configs = next_deployment.get("configs") 
         next_deployment_affinity = next_deployment.get("affinity")
 
+        annotations_patch = {"metadata": {"annotations": dict(meta.annotations)}}
         for config in next_deployment_configs:
             if config.get("kind") == "Deployment":
                 config["spec"]["template"]["spec"].update({"nodeSelector": {"zone" : f"{next_deployment_affinity}"}})                        
                 next_deployment_namespace = config.get("metadata").get("namespace")
                 next_deployment_app_name = config.get("metadata").get("labels").get("app")
-                status["create_fn"]["child-deployment-namespace"] = next_deployment_namespace
-                status["create_fn"]["child-deployment-app-name"] = config.get("metadata").get("labels").get("app")
-                status["create_fn"]["child-deployment-prometheus-url"] = config.get("spec").get("template").get("metadata").get("annotations").get("prometheusUrl")
-                status["create_fn"]["child-deployment-affinity"] = next_deployment_affinity
+                annotations_patch["metadata"]["annotations"]["child-deployment-namespace"] = next_deployment_namespace
+                annotations_patch["metadata"]["annotations"]["child-deployment-app-name"] = config.get("metadata").get("labels").get("app")
+                # status["create_fn"]["child-deployment-prometheus-url"] = config.get("spec").get("template").get("metadata").get("annotations").get("prometheusUrl")
+                annotations_patch["metadata"]["annotations"]["child-deployment-affinity"] = next_deployment_affinity
 
             if config.get("kind") == "Service":
                 next_deployment_service_name = config.get("metadata").get("name")
@@ -174,7 +189,7 @@ def migrate_fn(spec, status, name, old, new, logger, **_):
         resp = k8s_core_v1.read_namespaced_service(next_deployment_service_name, next_deployment_namespace)
         next_deployment_service_port = resp.spec.ports[0].node_port
 
-        service_url = f"http://192.168.58.2:{current_deployment_service_port}/dump"
+        service_url = f"http://{CLUSTER_IP}:{current_deployment_service_port}/dump"
         resp = requests.post(service_url)
         print(resp.text)
 
@@ -182,7 +197,7 @@ def migrate_fn(spec, status, name, old, new, logger, **_):
         timestamps["Extracting state"] = datetime.datetime.now()
 
         # restore the state in the new instance
-        next_service_url = f"http://192.168.58.2:{next_deployment_service_port}/restore"
+        next_service_url = f"http://{CLUSTER_IP}:{next_deployment_service_port}/restore"
         headers = {
             "Content-Type": "application/json"
         }
@@ -208,6 +223,12 @@ def migrate_fn(spec, status, name, old, new, logger, **_):
         resp = k8s_core_v1.patch_namespaced_service(next_deployment_service_name, next_deployment_namespace, next_deployment_service)
         print(resp)
 
-        # generate_chart(timestamps)
+        group = "test.dev"
+        version = "v1"
+        plural = "cyberphysicalapplications"
+        resp = k8s_custom_object.patch_namespaced_custom_object(group, version, namespace, plural, name, body=annotations_patch)
+
+
+        generate_chart(timestamps)
 
         return
