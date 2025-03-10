@@ -41,7 +41,7 @@ spec:
               spec:
                 containers:
                 - name: dt-1-edge
-                  image: rssgai/dt-flask:distributed-cache-v1
+                  image: rssgai/dt-flask:distributed-cache-v3
                   ports:
                     - containerPort: 8001
                   env:
@@ -97,7 +97,7 @@ spec:
               spec:
                 containers:
                 - name: dt-1-mec
-                  image: rssgai/dt-flask:distributed-cache-v1
+                  image: rssgai/dt-flask:distributed-cache-v3
                   ports:
                     - containerPort: 8001
                   env:
