@@ -134,7 +134,16 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
         next_deployment_affinity = next_deployment.get("affinity")
 
         timestamps["Choosing next deployment"] = datetime.datetime.now()
+        
+        # delete old instance
+        for depl in deployments:
+            if depl.get("affinity") == current_deployment_affinity:
+                for config in depl.get("configs"):
+                    delete_from_dict(k8s_client, config)
 
+
+        timestamps["Deleting old instance"] = datetime.datetime.now()
+        
         # start new instance
         annotations_patch = {"metadata": {"annotations": dict(meta.annotations)}}
         for config in next_deployment_configs:
@@ -154,16 +163,8 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
                 logger.exception("Exception creating new object.")
         
         timestamps["Creating new instance"] = datetime.datetime.now()
-        
-        # delete old instance
-        for depl in deployments:
-            if depl.get("affinity") == current_deployment_affinity:
-                for config in depl.get("configs"):
-                    delete_from_dict(k8s_client, config)
 
 
-        timestamps["Deleting old instance"] = datetime.datetime.now()
-        
         group = "test.dev"
         version = "v1"
         plural = "cyberphysicalapplications"

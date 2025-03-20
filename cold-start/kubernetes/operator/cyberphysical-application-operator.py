@@ -4,6 +4,7 @@ import json
 import random
 import datetime
 import os
+import time
 from kubernetes import client
 from kubernetes.utils import create_from_dict
 from k8s_utils import delete_from_dict
@@ -182,7 +183,10 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
 
     # trigger a migration
     if old == False and new == True:
-        timestamps = {}
+        timestamps = []
+
+        operation_name = "Creating new instance"
+        operation_start_time = datetime.datetime.now()
 
         deployments = spec.get("deployments")
         current_deployment_affinity = meta.get("annotations").get(
@@ -190,6 +194,9 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
         )
         current_deployment_namespace = meta.get("annotations").get(
             "child-deployment-namespace"
+        )
+        current_deployment_app_name = meta.get("annotations").get(
+            "child-deployment-app-name"
         )
         next_deployment = choose_next_deployment(
             deployments, current_deployment_affinity
@@ -230,8 +237,11 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
         ensure_pods_ready(k8s_core_v1, next_deployment_app_name, namespace, logger)
         print("Deployment's pods started.")
 
-        timestamps["Creating new instance"] = datetime.datetime.now()
+        operation_end_time = datetime.datetime.now()
+        timestamps.append([operation_name, operation_start_time, operation_end_time])
 
+        operation_name = "Requering"
+        operation_start_time = operation_end_time
         # call endpoint to requery the pt
         endpoint = "/requery"
         label_selector = f"related-to={name}"
@@ -252,10 +262,22 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
             "url": "http://host.minikube.internal:8000",
             "endpoints": endpoints,
         }
-        resp = requests.post(url, headers=headers, data=json.dumps(data))
-        print(resp.text)
+        requeried = False
+        while not requeried:
+            try:
+                resp = requests.post(url, headers=headers, data=json.dumps(data))
+                print(resp.text)
+            except ConnectionError as e:
+                logger.debug("Retrying requery.")
+                continue
 
-        timestamps["Requering"] = datetime.datetime.now()
+            requeried = True
+            
+        operation_end_time = datetime.datetime.now()
+        timestamps.append([operation_name, operation_start_time, operation_end_time])
+
+        operation_name = "Deleting old instance"
+        operation_start_time = operation_end_time
 
         # delete old instance
         for depl in deployments:
@@ -263,7 +285,10 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
                 for config in depl.get("configs"):
                     delete_from_dict(k8s_client, config)
 
-        timestamps["Deleting old instance"] = datetime.datetime.now()
+        ensure_pod_termination(k8s_core_v1, current_deployment_app_name, namespace, logger)
+
+        operation_end_time = datetime.datetime.now()
+        timestamps.append([operation_name, operation_start_time, operation_end_time])
 
         group = "test.dev"
         version = "v1"
@@ -273,5 +298,4 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
         )
 
         generate_chart(timestamps)
-
         return
