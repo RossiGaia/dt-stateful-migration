@@ -29,8 +29,8 @@ odte_threshold = float(os.environ.get("ODTE_THRESHOLD", 0.6))
 # Application
 app = Flask(__name__)
 average_threshold = float(os.environ.get("AVERAGE_THRESHOLD", 55.0))
-observations_deque_lenght = int(os.environ.get("OBSERVATIONS_DEQUE_LENGHT", 100))
-messages_deque_lenght = int(os.environ.get("MESSAGES_DEQUE_LENGHT", 100))
+observations_deque_length = int(os.environ.get("OBSERVATIONS_DEQUE_LENGTH", 100))
+messages_deque_length = int(os.environ.get("MESSAGES_DEQUE_LENGTH", 100))
 no_sensors = int(os.environ.get("NO_SENSORS", 100))
 physical_twin_name = "rotating_machine_1"
 dump_path_file = os.environ.get("DUMP_PATH_FILE")
@@ -39,11 +39,13 @@ if dump_path_file is None:
     exit(1)
 
 # Measurements
-exec_measurements = collections.deque(maxlen=messages_deque_lenght)
+exec_measurements = collections.deque(maxlen=messages_deque_length)
 exec_measurements_file_path = os.environ.get(
     "EXEC_MEASUREMENTS_FILE_PATH", "/var/log/dt/exec_measurements.txt"
 )
-
+state_handling_measurements_file_path = os.environ.get(
+    "STATE_HANDLING_MEASUREMENTS_FILE_PATH", "/var/log/dt/state_handling_measurements.txt"
+)
 
 def graceful_shutdown(signum, frame):
     global digital_twin, exec_measurements, exec_measurements_file_path
@@ -163,19 +165,19 @@ class DigitalTwinState(Enum):
 
 class DigitalTwin:
     def __init__(self):
-        global mqtt_broker, mqtt_port, mqtt_topic, physical_twin_name, observations_deque_lenght, messages_deque_lenght
+        global mqtt_broker, mqtt_port, mqtt_topic, physical_twin_name, observations_deque_length, messages_deque_length
         self._state = DigitalTwinState.UNBOUND
         self._object = VirtualRotatingMachine(
             physical_twin_name,
             [VirtualSensor(f"sensor_{i}") for i in range(no_sensors)],
         )
         self._odte = None
-        self._messages = collections.deque(maxlen=messages_deque_lenght)
-        self._observations = collections.deque(maxlen=observations_deque_lenght)
+        self._messages = collections.deque(maxlen=messages_deque_length)
+        self._observations = collections.deque(maxlen=observations_deque_length)
         self._average = 0.0
 
         self._lock = threading.Lock()
-        self._sums = collections.deque(maxlen=messages_deque_lenght)
+        self._sums = collections.deque(maxlen=messages_deque_length)
 
         odte_t = threading.Thread(target=self.odte_thread, daemon=True)
         odte_t.start()
@@ -220,7 +222,7 @@ class DigitalTwin:
     @messages_deque.setter
     def messages_deque(self, value):
         with self._lock:
-            self._messages = collections.deque(value, maxlen=messages_deque_lenght)
+            self._messages = collections.deque(value, maxlen=messages_deque_length)
 
     @property
     def observations(self):
@@ -231,7 +233,7 @@ class DigitalTwin:
     def observations(self, value):
         with self._lock:
             self._observations = collections.deque(
-                value, maxlen=observations_deque_lenght
+                value, maxlen=observations_deque_length
             )
 
     @property
@@ -252,10 +254,10 @@ class DigitalTwin:
     @sums.setter
     def sums(self, value):
         with self._lock:
-            self._sums = collections.deque(value, maxlen=messages_deque_lenght)
+            self._sums = collections.deque(value, maxlen=messages_deque_length)
 
     def restore_state(self):
-        global mqtt_broker, mqtt_port, mqtt_topic, physical_twin_name, observations_deque_lenght, messages_deque_lenght
+        global mqtt_broker, mqtt_port, mqtt_topic, physical_twin_name, observations_deque_length, messages_deque_length
 
         with open(dump_path_file, "r") as file:
             dump_file_content = file.readlines()
@@ -280,7 +282,7 @@ class DigitalTwin:
         self.messages_deque = dump["messages_deque"]
         self.observations = dump["observations"]
         self.average = dump["average"]
-        self._sums = dump["sums"]
+        self.sums = dump["sums"]
 
         logger.info(f"Average recovered: {self.average}.")
 

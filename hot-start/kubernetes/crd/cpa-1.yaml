@@ -5,11 +5,11 @@ metadata:
 spec:
   # debug migrazione
   migrate: false
-  mirrorTime: 60
+  mirrorTime: 100
   source: ""
   twinType: "simple"
-  twinOf: 
-   - "led_1"
+  twinOf:
+    - "led_1"
   requirements:
     preferredAffinity: "mec"
     odte: 0.8
@@ -40,11 +40,25 @@ spec:
                   prometheus.io/port: "8001"
                   prometheus.io/path: "/metrics"
               spec:
+                volumes:
+                  - name: tmp-volume
+                    nfs:
+                      server: nfs-server-boxplot.test
+                      path: /exports
+                      readOnly: no
                 containers:
-                - name: dt-1-edge
-                  image: rssgai/dt-flask:massive-hot-start-v1
-                  ports:
-                  - containerPort: 8001
+                  - name: dt-1-edge
+                    image: rssgai/dt-flask:massive-hot-start-v1
+                    volumeMounts:
+                      - name: tmp-volume
+                        mountPath: /var/tmp/dt
+                    ports:
+                      - containerPort: 8001
+                    env:
+                      - name: NO_SENSORS
+                        value: "1000"
+                      - name: EXEC_MEASUREMENTS_FILE_PATH
+                        value: /var/tmp/dt/exec_measurements_hs.txt
 
         - apiVersion: v1
           kind: Service
@@ -59,7 +73,7 @@ spec:
                 port: 8001
                 targetPort: 8001
             type: NodePort
-    
+
     - type: "Kubernetes"
       affinity: "mec"
       configs:
@@ -86,11 +100,25 @@ spec:
                   prometheus.io/port: "8001"
                   prometheus.io/path: "/metrics"
               spec:
+                volumes:
+                  - name: tmp-volume
+                    nfs:
+                      server: nfs-server-boxplot.test
+                      path: /exports
+                      readOnly: no
                 containers:
-                - name: dt-1-mec
-                  image: rssgai/dt-flask:massive-hot-start-v1
-                  ports:
-                  - containerPort: 8001
+                  - name: dt-1-mec
+                    image: rssgai/dt-flask:massive-hot-start-v1
+                    volumeMounts:
+                      - name: tmp-volume
+                        mountPath: /var/tmp/dt
+                    ports:
+                      - containerPort: 8001
+                    env:
+                      - name: NO_SENSORS
+                        value: "1000"
+                      - name: EXEC_MEASUREMENTS_FILE_PATH
+                        value: /var/tmp/dt/exec_measurements_hs.txt
 
         - apiVersion: v1
           kind: Service

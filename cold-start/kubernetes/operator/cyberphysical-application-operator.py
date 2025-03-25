@@ -17,9 +17,6 @@ if not cluster_ip:
     exit(1)
 
 
-no_sensors = int(os.environ.get("NO_SENSORS", 100))
-
-
 @kopf.on.create("cyberphysicalapplications")
 def create_fn(spec, name, logger, meta, namespace, **kwargs):
     k8s_client = client.ApiClient()
@@ -184,7 +181,6 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
     # trigger a migration
     if old == False and new == True:
         timestamps = []
-
         operation_name = "Creating new instance"
         operation_start_time = datetime.datetime.now()
 
@@ -227,6 +223,11 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
                     "child-deployment-affinity"
                 ] = next_deployment_affinity
 
+                # env var for migration
+                config["spec"]["template"]["spec"]["containers"][0]["env"].append(
+                    {"name": "MIGRATED", "value": "True"}
+                )
+
             kopf.adopt(config)
             kopf.label(config, {"related-to": f"{name}"})
             try:
@@ -253,26 +254,19 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
 
         headers = {"Content-Type": "application/json"}
 
-        # {"url": "<url>", endpoints: [{"variable_name": "<name>", "endpoint": "<endpoint>"}]}
-        endpoints = [
-            {"variable_name": f"sensor_{i}", "endpoint": f"sensor/sensor_{i}"}
-            for i in range(no_sensors)
-        ]
-        data = {
-            "url": "http://host.minikube.internal:8000",
-            "endpoints": endpoints,
-        }
+        data = {"url": "http://host.minikube.internal:8000/sensors"}
         requeried = False
         while not requeried:
             try:
                 resp = requests.post(url, headers=headers, data=json.dumps(data))
                 print(resp.text)
-            except ConnectionError as e:
+            except (ConnectionError, Exception) as e:
                 logger.debug("Retrying requery.")
+                time.sleep(0.5)
                 continue
 
             requeried = True
-            
+
         operation_end_time = datetime.datetime.now()
         timestamps.append([operation_name, operation_start_time, operation_end_time])
 
@@ -285,7 +279,9 @@ def migrate_fn(spec, name, old, new, logger, meta, namespace, **_):
                 for config in depl.get("configs"):
                     delete_from_dict(k8s_client, config)
 
-        ensure_pod_termination(k8s_core_v1, current_deployment_app_name, namespace, logger)
+        ensure_pod_termination(
+            k8s_core_v1, current_deployment_app_name, namespace, logger
+        )
 
         operation_end_time = datetime.datetime.now()
         timestamps.append([operation_name, operation_start_time, operation_end_time])

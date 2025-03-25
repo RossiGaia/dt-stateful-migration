@@ -34,13 +34,13 @@ observations_deque_lenght = int(os.environ.get("OBSERVATIONS_DEQUE_LENGHT", 100)
 messages_deque_lenght = int(os.environ.get("MESSAGES_DEQUE_LENGHT", 100))
 no_sensors = int(os.environ.get("NO_SENSORS", 100))
 physical_twin_name = "rotating_machine_1"
+migrated = bool(os.environ.get("MIGRATED", False))
 
 # Measurements
 exec_measurements = collections.deque(maxlen=messages_deque_lenght)
 exec_measurements_file_path = os.environ.get(
     "EXEC_MEASUREMENTS_FILE_PATH", "/var/log/dt/exec_measurements.txt"
 )
-
 
 def graceful_shutdown(signum, frame):
     global digital_twin, exec_measurements, exec_measurements_file_path
@@ -175,7 +175,8 @@ class DigitalTwin:
         odte_t = threading.Thread(target=self.odte_thread, daemon=True)
         odte_t.start()
 
-        self.connect_to_mqtt_and_subscribe(mqtt_broker, int(mqtt_port), mqtt_topic)
+        if not migrated:
+            self.connect_to_mqtt_and_subscribe(mqtt_broker, int(mqtt_port), mqtt_topic)
 
     @property
     def state(self):
@@ -385,39 +386,39 @@ class DigitalTwin:
                     self.state = DigitalTwinState.ENTANGLED
             time.sleep(1)
 
-    def requery(self, url, endpoints):
-        for endpoint in endpoints:
+    def requery(self, url, iterations_to_rebuild = 100, seconds_between_requests = 1):
+        for i in range(iterations_to_rebuild):
+            logger.debug(f"Iteration no: {i}")
             try:
-                resp = requests.get(f"{url}/{endpoint["endpoint"]}")
+                resp = requests.get(url)
                 data = json.loads(resp.text)
             except (
                 requests.exceptions.ConnectionError,
                 requests.exceptions.ConnectTimeout,
             ):
                 return False
+            
+            for sensor in data:
+                try:
+                    getattr(self.obj.sensors, sensor["sensor"])
+                    self.obj.sensors[sensor["sensor"]].name = sensor["sensor"]
+                    self.obj.sensors[sensor["sensor"]].state = VirtualSensorState[sensor["state"]]
+                    self.obj.sensors[sensor["sensor"]].value = sensor["value"]
+                except AttributeError:
+                    continue
+            time.sleep(seconds_between_requests)
 
-            try:
-                getattr(self.obj.sensors, endpoint["variable_name"])
-                self.obj.sensors[endpoint["variable_name"]] = VirtualSensor(
-                    data["name"],
-                    data["sampling_rate"],
-                    data["measuring_unit"],
-                    VirtualSensorState[data["state"]],
-                    data["value"],
-                )
-            except AttributeError:
-                continue
+        self.connect_to_mqtt_and_subscribe(mqtt_broker, int(mqtt_port), mqtt_topic)
 
 
-# {"url": "<url>", endpoints: [{"variable_name": "<name>", "endpoint": "<endpoint>"}]}
+# {"url": "<url>"}
 @app.route("/requery", methods=["POST"])
 def requery():
     global digital_twin
     data = request.get_json()
     pt_url = data["url"]
-    pt_endpoints = data["endpoints"]
 
-    digital_twin.requery(pt_url, pt_endpoints)
+    digital_twin.requery(pt_url)
     return {"message": "requeried"}, 201
 
 

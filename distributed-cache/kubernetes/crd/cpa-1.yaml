@@ -39,11 +39,20 @@ spec:
                   prometheus.io/port: "8001"
                   prometheus.io/path: "/metrics"
               spec:
+                volumes:
+                  - name: tmp-volume
+                    nfs:
+                      server: nfs-server-boxplot.test
+                      path: /exports
+                      readOnly: no
                 containers:
                 - name: dt-1-edge
                   image: rssgai/dt-flask:massive-distributed-cache-v3
                   ports:
                     - containerPort: 8001
+                  volumeMounts:
+                  - name: tmp-volume
+                    mountPath: /var/tmp/dt
                   env:
                     - name: MQTT_BROKER
                       value: mosquitto-service.default.svc.cluster.local
@@ -55,6 +64,10 @@ spec:
                       value: redis.default.svc.cluster.local
                     - name: REDIS_PORT
                       value: "6379"
+                    - name: NO_SENSORS
+                      value: "1000"
+                    - name: EXEC_MEASUREMENTS_FILE_PATH
+                      value: /var/tmp/dt/exec_measurements_dc.txt
 
         - apiVersion: v1
           kind: Service
@@ -95,11 +108,20 @@ spec:
                   prometheus.io/port: "8001"
                   prometheus.io/path: "/metrics"
               spec:
+                volumes:
+                  - name: tmp-volume
+                    nfs:
+                      server: nfs-server-boxplot.test
+                      path: /exports
+                      readOnly: no
                 containers:
                 - name: dt-1-mec
                   image: rssgai/dt-flask:massive-distributed-cache-v3
                   ports:
                     - containerPort: 8001
+                  volumeMounts:
+                  - name: tmp-volume
+                    mountPath: /var/tmp/dt
                   env:
                     - name: MQTT_BROKER
                       value: mosquitto-service.default.svc.cluster.local
@@ -111,6 +133,10 @@ spec:
                       value: redis.default.svc.cluster.local
                     - name: REDIS_PORT
                       value: "6379"
+                    - name: NO_SENSORS
+                      value: "1000"
+                    - name: EXEC_MEASUREMENTS_FILE_PATH
+                      value: /var/tmp/dt/exec_measurements_dc.txt
 
         - apiVersion: v1
           kind: Service

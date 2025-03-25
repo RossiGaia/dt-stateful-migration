@@ -4,9 +4,16 @@ from kubernetes.utils import create_from_dict
 from k8s_utils import delete_from_dict
 from graph_utils import generate_chart
 
+cluster_ip = os.environ.get("CLUSTER_IP")
+
+if not cluster_ip:
+    print("CLUSTER_IP env var not present. Exiting.")
+    exit(1)
+
 @kopf.on.create("cyberphysicalapplications")
-def create_fn(spec, name, logger, **kwargs):
+def create_fn(spec, meta, namespace, name, logger, **kwargs):
     k8s_client = client.ApiClient()
+    k8s_custom_object = client.CustomObjectsApi()
 
     deployments = spec.get("deployments")
     preferred_affinity = spec.get("requirements").get("preferredAffinity")
@@ -50,12 +57,26 @@ def create_fn(spec, name, logger, **kwargs):
         except Exception as e:
             logger.exception("Exception in object creation.")
 
-    return {
-        "child-deployment-namespace": deployment_namespace,
-        "child-deployment-app-name": deployment_app_name,
-        "child-deployment-prometheus-url": deployment_prometheus_url,
-        "child-deployment-affinity": deployment_affinity,
-    }
+    annotations_patch = {"metadata": {"annotations": dict(meta.annotations)}}
+    annotations_patch["metadata"]["annotations"][
+        "child-deployment-namespace"
+    ] = deployment_namespace
+    annotations_patch["metadata"]["annotations"][
+        "child-deployment-app-name"
+    ] = deployment_app_name
+    annotations_patch["metadata"]["annotations"][
+        "child-deployment-prometheus-url"
+    ] = deployment_prometheus_url
+    annotations_patch["metadata"]["annotations"][
+        "child-deployment-affinity"
+    ] = deployment_affinity
+
+    group = "test.dev"
+    version = "v1"
+    plural = "cyberphysicalapplications"
+    resp = k8s_custom_object.patch_namespaced_custom_object(
+        group, version, namespace, plural, name, body=annotations_patch
+    )
 
 
 def get_prometheus_odte(prometheus_url, twin_of, logger):
@@ -146,7 +167,7 @@ def update_fn(name, spec, namespace, **kwargs):
 
 
 @kopf.on.field("cyberphysicalapplications", field="spec.migrate")
-def migrate_fn(spec, meta, status, name, old, new, logger, namespace, **_):
+def migrate_fn(spec, meta, name, old, new, logger, namespace, **_):
 
     # guard condition for creation
     if old is None:
@@ -158,14 +179,17 @@ def migrate_fn(spec, meta, status, name, old, new, logger, namespace, **_):
 
     # trigger a migration
     if old == False and new == True:
-        timestamps = {}
+        timestamps = []
 
         deployments = spec.get("deployments")
-        current_deployment_affinity = status.get("create_fn").get(
+        current_deployment_affinity = meta.get("annotations").get(
             "child-deployment-affinity"
         )
-        current_deployment_namespace = status.get("create_fn").get(
+        current_deployment_namespace = meta.get("annotations").get(
             "child-deployment-namespace"
+        )
+        current_deployment_app_name = meta.get("annotations").get(
+            "child-deployment-app-name"
         )
         next_deployment = choose_next_deployment(
             deployments, current_deployment_affinity
@@ -173,14 +197,31 @@ def migrate_fn(spec, meta, status, name, old, new, logger, namespace, **_):
         next_deployment_configs = next_deployment.get("configs")
         next_deployment_affinity = next_deployment.get("affinity")
 
-        timestamps["Choosing next deployment"] = datetime.datetime.now()
-
         # find rsync source
         label_selector = f"related-to={name}"
         resp = k8s_core_v1.list_namespaced_service(
             current_deployment_namespace, label_selector=label_selector
         )
         current_deployment_service_name = resp.items[0].metadata.name
+       
+        # dump
+        operation_name = "Extracting state"
+        operation_start_time = datetime.datetime.now()
+
+        label_selector = f"related-to={name}"
+        resp = k8s_core_v1.list_namespaced_service(current_deployment_namespace, label_selector=label_selector)
+        current_deployment_service_port = resp.items[0].spec.ports[0].node_port
+        endpoint = "/dump"
+        url = f"http://{cluster_ip}:{current_deployment_service_port}{endpoint}"
+        resp = requests.post(url)
+        print(resp.text)
+
+        operation_end_time = datetime.datetime.now()
+        timestamps.append([operation_name, operation_start_time, operation_end_time])
+
+
+        operation_name = "Creating new instance"
+        operation_start_time = operation_end_time
 
         # start new instance
         annotations_patch = {"metadata": {"annotations": dict(meta.annotations)}}
@@ -232,7 +273,17 @@ def migrate_fn(spec, meta, status, name, old, new, logger, namespace, **_):
             except:
                 logger.exception("Exception creating new object.")
 
-        timestamps["Creating new instance"] = datetime.datetime.now()
+        # wait for it to start correctly
+        ensure_pods_ready(
+            k8s_core_v1, next_deployment_app_name, next_deployment_namespace, logger
+        )
+        print("Deployment's pods started.")
+        
+        operation_end_time = datetime.datetime.now()
+        timestamps.append([operation_name, operation_start_time, operation_end_time])
+
+        operation_name = "Performing rsync"
+        operation_start_time = operation_end_time
 
         # wait rsync, check if init pods are terminated
         init_pod_name = "rsync-init"
@@ -256,7 +307,11 @@ def migrate_fn(spec, meta, status, name, old, new, logger, namespace, **_):
                         if not init_container_statuses[0].state.terminated is None:
                             terminated = True
 
-        timestamps["Performing rsync"] = datetime.datetime.now()
+        operation_end_time = datetime.datetime.now()
+        timestamps.append([operation_name, operation_start_time, operation_end_time])
+
+        operation_name = "Deleting old instance"
+        operation_start_time = operation_end_time
 
         # delete old instance
         for depl in deployments:
@@ -264,7 +319,10 @@ def migrate_fn(spec, meta, status, name, old, new, logger, namespace, **_):
                 for config in depl.get("configs"):
                     delete_from_dict(k8s_client, config)
 
-        timestamps["Deleting old instance"] = datetime.datetime.now()
+        ensure_pod_termination(k8s_core_v1, current_deployment_app_name, namespace, logger)
+        
+        operation_end_time = datetime.datetime.now()
+        timestamps.append([operation_name, operation_start_time, operation_end_time])
 
         group = "test.dev"
         version = "v1"

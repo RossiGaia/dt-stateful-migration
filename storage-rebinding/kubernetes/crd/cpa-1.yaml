@@ -8,8 +8,8 @@ spec:
   mirrorTime: 60
   source: ""
   twinType: "simple"
-  twinOf: 
-   - "led_1"
+  twinOf:
+    - "led_1"
   requirements:
     preferredAffinity: "mec"
     odte: 0.8
@@ -43,23 +43,34 @@ spec:
                   - name: dump-data
                     persistentVolumeClaim:
                       claimName: dt-dump-test-pvc
+                  - name: tmp-volume
+                    nfs:
+                      server: nfs-server-boxplot.test
+                      path: /exports
+                      readOnly: no
                 containers:
-                - name: dt-1-edge
-                  image: rssgai/dt-flask:massive-dump-v1
-                  volumeMounts:
-                    - name: dump-data
-                      mountPath: /var/tmp/dt_data
-                  ports:
-                    - containerPort: 8001
-                  env:
-                    - name: MQTT_BROKER
-                      value: mosquitto-service.default.svc.cluster.local
-                    - name: MQTT_PORT
-                      value: "1883"
-                    - name: MQTT_TOPIC
-                      value: factory_1
-                    - name: DUMP_PATH_FILE
-                      value: /var/tmp/dt_data/dump.json
+                  - name: dt-1-edge
+                    image: rssgai/dt-flask:massive-dump-v3
+                    volumeMounts:
+                      - name: dump-data
+                        mountPath: /var/tmp/dt_data
+                      - name: tmp-volume
+                        mountPath: /var/tmp/dt
+                    ports:
+                      - containerPort: 8001
+                    env:
+                      - name: MQTT_BROKER
+                        value: mosquitto-service.default.svc.cluster.local
+                      - name: MQTT_PORT
+                        value: "1883"
+                      - name: MQTT_TOPIC
+                        value: factory_1
+                      - name: DUMP_PATH_FILE
+                        value: /var/tmp/dt_data/dump.json
+                      - name: NO_SENSORS
+                        value: "1000"
+                      - name: EXEC_MEASUREMENTS_FILE_PATH
+                        value: /var/tmp/dt/exec_measurements_srb.txt
 
         - apiVersion: v1
           kind: Service
@@ -74,7 +85,7 @@ spec:
                 port: 8001
                 targetPort: 8001
             type: NodePort
-    
+
     - type: "Kubernetes"
       affinity: "mec"
       configs:
@@ -104,23 +115,34 @@ spec:
                   - name: dump-data
                     persistentVolumeClaim:
                       claimName: dt-dump-test-pvc
+                  - name: tmp-volume
+                    nfs:
+                      server: nfs-server-boxplot.test
+                      path: /exports
+                      readOnly: no
                 containers:
-                - name: dt-1-mec
-                  image: rssgai/dt-flask:massive-dump-v1
-                  volumeMounts:
-                    - name: dump-data
-                      mountPath: /var/tmp/dt_data
-                  ports:
-                    - containerPort: 8001
-                  env:
-                    - name: MQTT_BROKER
-                      value: mosquitto-service.default.svc.cluster.local
-                    - name: MQTT_PORT
-                      value: "1883"
-                    - name: MQTT_TOPIC
-                      value: factory_1
-                    - name: DUMP_PATH_FILE
-                      value: /var/tmp/dt_data/dump.json
+                  - name: dt-1-mec
+                    image: rssgai/dt-flask:massive-dump-v3
+                    volumeMounts:
+                      - name: dump-data
+                        mountPath: /var/tmp/dt_data
+                      - name: tmp-volume
+                        mountPath: /var/tmp/dt
+                    ports:
+                      - containerPort: 8001
+                    env:
+                      - name: MQTT_BROKER
+                        value: mosquitto-service.default.svc.cluster.local
+                      - name: MQTT_PORT
+                        value: "1883"
+                      - name: MQTT_TOPIC
+                        value: factory_1
+                      - name: DUMP_PATH_FILE
+                        value: /var/tmp/dt_data/dump.json
+                      - name: NO_SENSORS
+                        value: "1000"
+                      - name: EXEC_MEASUREMENTS_FILE_PATH
+                        value: /var/tmp/dt/exec_measurements_srb.txt
 
         - apiVersion: v1
           kind: Service

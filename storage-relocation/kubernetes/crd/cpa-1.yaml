@@ -46,14 +46,21 @@ spec:
                       server: nfs-server-1.test
                       path: /exports
                       readOnly: no
+                  - name: tmp-volume
+                    nfs:
+                      server: nfs-server-boxplot.test
+                      path: /exports
+                      readOnly: no
                 containers:
                 - name: dt-1-edge
-                  image: rssgai/dt-flask:massive-dump-rsync-v1
+                  image: rssgai/dt-flask:massive-dump-rsync-v4
                   ports:
                   - containerPort: 8001
                   volumeMounts:
                     - name: dump-dt
                       mountPath: /var/tmp/dt_data
+                    - name: tmp-volume
+                      mountPath: /var/tmp/dt
                   env:
                     - name: MQTT_BROKER
                       value: mosquitto-service.default.svc.cluster.local
@@ -63,6 +70,10 @@ spec:
                       value: factory_1
                     - name: DUMP_PATH_FILE
                       value: /var/tmp/dt_data/dump.json
+                    - name: NO_SENSORS
+                      value: "1000"
+                    - name: EXEC_MEASUREMENTS_FILE_PATH
+                      value: /var/tmp/dt/exec_measurements_srl.txt
                 initContainers:
                 - name: rsync-init
                   image: rssgai/rsync-util:v2
@@ -119,14 +130,21 @@ spec:
                       server: nfs-server-2.test
                       path: /exports
                       readOnly: no
+                  - name: tmp-volume
+                    nfs:
+                      server: nfs-server-boxplot.test
+                      path: /exports
+                      readOnly: no
                 containers:
                 - name: dt-1-mec
-                  image: rssgai/dt-flask:massive-dump-rsync-v1
+                  image: rssgai/dt-flask:massive-dump-rsync-v4
                   ports:
                   - containerPort: 8001
                   volumeMounts:
                     - name: dump-dt
                       mountPath: /var/tmp/dt_data
+                    - name: tmp-volume
+                      mountPath: /var/tmp/dt
                   env:
                     - name: MQTT_BROKER
                       value: mosquitto-service.default.svc.cluster.local
@@ -136,6 +154,10 @@ spec:
                       value: factory_1
                     - name: DUMP_PATH_FILE
                       value: /var/tmp/dt_data/dump.json
+                    - name: NO_SENSORS
+                      value: "1000"
+                    - name: EXEC_MEASUREMENTS_FILE_PATH
+                      value: /var/tmp/dt/exec_measurements_srl.txt
                 initContainers:
                 - name: rsync-init
                   image: rssgai/rsync-util:v2

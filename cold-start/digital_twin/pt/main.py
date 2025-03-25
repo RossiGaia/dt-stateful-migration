@@ -10,9 +10,15 @@ import logging
 import signal
 
 # Global vars
+# Application
+app = Flask(__name__)
+no_sensors = int(os.environ.get("NO_SENSORS", 100))
+
 # logging
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+log_server = logging.getLogger('werkzeug')
+log_server.setLevel(logging.ERROR)
+logging.basicConfig(level=logging.WARNING)
 
 # MQTT
 mqtt_broker = os.environ.get("MQTT_BROKER")
@@ -32,11 +38,6 @@ def on_connect(client, userdata, flags, reason_code, properties):
 mqtt_client.on_connect = on_connect
 mqtt_client.connect(mqtt_broker, int(mqtt_port))
 mqtt_client.loop_start()
-
-# Application
-app = Flask(__name__)
-no_sensors = int(os.environ.get("NO_SENSORS", 100))
-
 
 def graceful_shutdown(signum, frame):
     global rotating_machine
@@ -222,7 +223,7 @@ class RotatingMachine:
                 f"{mqtt_topic}/{self.name}",
                 json.dumps({"readings": readings, "timestamp": time.time()}),
             )
-            logger.info(f"Message size: {len(json.dumps(readings))}")
+            logger.info(f"Message size in MB: {len(json.dumps(readings)) / 1024 / 1024}")
             logger.debug(f"Published message:")
             for read in readings:
                 logger.debug(f"{read["sensor"]}: {read["value"]}")

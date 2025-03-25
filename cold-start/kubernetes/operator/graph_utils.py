@@ -2,7 +2,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import datetime
 
-
 def generate_chart(timestamps):
 
     """Generates a chart from the recorded timestamps."""

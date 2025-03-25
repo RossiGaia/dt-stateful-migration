@@ -51,7 +51,6 @@ def graceful_shutdown(signum, frame):
     logger.info("Shutting down.")
 
     try:
-        digital_twin.dump_state()
         with open(exec_measurements_file_path, "w+") as file:
             json.dump(list(exec_measurements), file)
     except Exception as e:
@@ -280,7 +279,7 @@ class DigitalTwin:
         self.messages_deque = dump["messages_deque"]
         self.observations = dump["observations"]
         self.average = dump["average"]
-        self._sums = dump["sums"]
+        self.sums = dump["sums"]
 
         logger.info(f"Average recovered: {self.average}.")
 
@@ -425,6 +424,7 @@ class DigitalTwin:
     def odte_thread(self):
         global odte_threshold
         while True:
+            logger.info(f"No sensors: {no_sensors}")
             logger.debug(f"Computing odte {time.time()}")
             if (
                 self.state == DigitalTwinState.BOUND
@@ -457,6 +457,12 @@ def odte_prometheus():
     )
     return prometheus_template
 
+
+@app.route("/dump", methods=["POST"])
+def dump_state():
+    global digital_twin
+    obj = digital_twin.dump_state()
+    return {"message": "dumped"}, 201
 
 if __name__ == "__main__":
     digital_twin = DigitalTwin()
